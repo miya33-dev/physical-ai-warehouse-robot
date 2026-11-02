@@ -1,6 +1,6 @@
 <mujoco model="language warehouse">
   <compiler angle="radian"/>
-  <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <option timestep="0.004" gravity="0 0 -9.81" integrator="implicitfast" cone="elliptic" impratio="10" noslip_iterations="3"/>
   <visual><global offwidth="960" offheight="640"/><quality shadowsize="2048"/><headlight ambient=".35 .35 .35" diffuse=".6 .6 .6"/></visual>
   <default><geom friction="1 .01 .001" solref=".012 1"/><joint damping="8"/><position kp="500" kv="70"/></default>
   <asset><texture name="floor" type="2d" builtin="checker" rgb1=".16 .20 .25" rgb2=".19 .23 .28" width="256" height="256"/><material name="floor" texture="floor" texrepeat="8 6" reflectance=".1"/></asset>
@@ -38,8 +38,17 @@
           <geom name="forearm" type="capsule" fromto="0 0 0 .45 0 0" size=".04" mass=".4" rgba=".8 .83 .85 1"/>
           <body name="tool" pos=".45 0 0" gravcomp="1">
             <joint name="lift" type="slide" axis="0 0 1" range="-.54 .08"/>
+            <joint name="wrist" type="hinge" axis="0 0 1" damping="2"/>
             <geom type="cylinder" pos="0 0 .14" size=".025 .14" mass=".15" rgba=".5 .54 .58 1"/>
-            <geom name="suction" type="cylinder" size=".05 .015" mass=".05" rgba=".08 .10 .12 1"/>
+            <geom name="palm" type="box" pos="0 0 .035" size=".075 .18 .025" mass=".12" rgba=".12 .17 .22 1"/>
+            <body name="left_finger" gravcomp="1">
+              <joint name="left_finger" type="slide" axis="0 1 0" range=".07 .16" damping=".5"/>
+              <geom name="left_pad" type="box" pos="0 0 -.075" size=".065 .015 .075" mass=".05" friction="1.5 .005 .0001" condim="4" rgba=".95 .7 .20 1"/>
+            </body>
+            <body name="right_finger" gravcomp="1">
+              <joint name="right_finger" type="slide" axis="0 -1 0" range=".07 .16" damping=".5"/>
+              <geom name="right_pad" type="box" pos="0 0 -.075" size=".065 .015 .075" mass=".05" friction="1.5 .005 .0001" condim="4" rgba=".95 .7 .20 1"/>
+            </body>
             <site name="tip" pos="0 0 -.015" size=".015" rgba="1 1 1 1"/>
           </body>
         </body>
@@ -52,6 +61,5 @@
     <pair geom1="floor" geom2="front_support" condim="3" friction=".005 .005 .0001 .00001 .00001"/>
     <pair geom1="floor" geom2="rear_support" condim="3" friction=".005 .005 .0001 .00001 .00001"/>
   </contact>
-  <equality><weld name="grasp_a" body1="tool" body2="parcel_a" active="false"/><weld name="grasp_b" body1="tool" body2="parcel_b" active="false"/></equality>
-  <actuator><velocity name="left_drive" joint="left_wheel" kv="8" forcerange="-12 12"/><velocity name="right_drive" joint="right_wheel" kv="8" forcerange="-12 12"/><position joint="shoulder"/><position joint="elbow"/><position joint="lift" kp="1000" kv="70"/></actuator>
+  <actuator><velocity name="left_drive" joint="left_wheel" kv="8" forcerange="-12 12"/><velocity name="right_drive" joint="right_wheel" kv="8" forcerange="-12 12"/><position joint="shoulder"/><position joint="elbow"/><position joint="lift" kp="1000" kv="70"/><position name="wrist_servo" joint="wrist" kp="300" kv="25"/><position name="left_grip" joint="left_finger" kp="500" kv="15" forcerange="-15 15"/><position name="right_grip" joint="right_finger" kp="500" kv="15" forcerange="-15 15"/></actuator>
 </mujoco>

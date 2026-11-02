@@ -1,5 +1,5 @@
-"""MuJoCo SCARA mobile manipulator, wheel-driven differential base and suction weld.
-Known map and simulator pose feedback; simplified suction grasp.
+"""MuJoCo SCARA mobile manipulator, wheel-driven differential base and contact gripper.
+Known map and simulator pose feedback; parallel fingers with contact/friction grasping.
 """
 from pathlib import Path
 import json
@@ -24,9 +24,9 @@ class Simulation:
         self.d=mj.MjData(self.m)
         self.r=mj.Renderer(self.m,height=480,width=640) if render else None
         self.cam=mj.MjvCamera(); self.cam.lookat[:]=[0,0,.3]; self.cam.distance=8.8; self.cam.azimuth=125; self.cam.elevation=-43
-        self.joints=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_JOINT,n) for n in ['shoulder','elbow','lift']]
+        self.joints=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_JOINT,n) for n in ['shoulder','elbow','lift','wrist','left_finger','right_finger']]
         self.qids=[int(self.m.jnt_qposadr[j]) for j in self.joints]
-        self.goal=np.array([0,0,-.9,2.2,0.])
+        self.goal=np.array([0,0,-.9,2.2,0.,-1.3,.15,.15])
         self.d.qpos[self.qids]=self.goal[2:]; self.d.ctrl[:]=self.goal
         self.base=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_BODY,'base')
         self.wheel_joints=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_JOINT,n) for n in ['left_wheel','right_wheel']]
@@ -36,6 +36,8 @@ class Simulation:
         self.furniture_geoms={mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['source','shipping','storage']}
         self.tip=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_SITE,'tip')
         self.tool=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_BODY,'tool')
+        self.finger_geoms=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['left_pad','right_pad']]
+        self.grasp_events=[]; self.monitor_grasp=False
         self.obstacle=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,'obstacle')
         self.robot_geoms=set(range(mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,'chassis'),self.m.ngeom))
         self.parcels=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_BODY,n) for n in ['parcel_a','parcel_b']]
@@ -60,7 +62,7 @@ class Simulation:
         """Reset parcel initial poses before inference; requires frozen vision model."""
         if not hasattr(self,'vision'):
             raise ValueError('train or load the vision model before setting evaluation layout')
-        if self.records or self.held is not None or any(self.d.eq_active):
+        if self.records or self.held is not None:
             raise ValueError('layout can only change before any delivery starts')
         layout=validate_layout(layout)
         for color,body in zip(['red','blue'],self.parcels):
@@ -87,6 +89,10 @@ class Simulation:
             self.d.ctrl[:]=self.goal
             previous=self.d.qpos[self.wheel_qids].copy()
             mj.mj_step(self.m,self.d)
+            if self.monitor_grasp and self.held is not None and self.d.xpos[self.parcels[self.held],2]<.75:
+                self.grasp_events.append({'phase':self.stage,'event':'dropped','time_s':float(self.d.time),'parcel_position':self.d.xpos[self.parcels[self.held]].tolist(),'forces':self.grip_contacts().tolist()})
+                self.monitor_grasp=False;self.goal[:2]=0
+                raise RuntimeError('parcel dropped during '+self.stage)
             self.wheel_distance_m+=np.abs(self.d.qpos[self.wheel_qids]-previous)*WHEEL_RADIUS
             if any((int(c.geom1) in self.wheel_geoms or int(c.geom2) in self.wheel_geoms) and (int(c.geom1)==0 or int(c.geom2)==0) for c in self.d.contact):
                 self.wheel_contact_steps+=1
@@ -116,7 +122,8 @@ class Simulation:
         if not -1<=cc<=1: raise ValueError('target outside arm reach')
         e=math.acos(cc)
         a=math.atan2(y,x)-math.atan2(.45*math.sin(e),.45+.45*math.cos(e))
-        q=self.goal.copy(); q[2:]=[a,e,z-(self.d.xpos[self.base,2]+.905)]
+        q=self.goal.copy(); q[2:5]=[a,e,z-(self.d.xpos[self.base,2]+.905)]
+        q[5]=wrap(-self.yaw()-a-e)
         self.move(q,seconds)
         err=float(np.linalg.norm(self.d.site_xpos[self.tip]-np.array([xy[0],xy[1],z])))
         if err>.04: raise RuntimeError(f'arm tracking error {err:.3f} m')
@@ -207,24 +214,38 @@ class Simulation:
         Image.fromarray(rgb).save(self.out/'camera.png')
         return acc
 
-    def attach(self):
-        tip=self.d.site_xpos[self.tip].copy()
-        # Physical proximity validation selects a body only after RGB targeting.
-        distances=[np.linalg.norm(self.d.xpos[b]-tip) for b in self.parcels]
-        k=int(np.argmin(distances))
-        if distances[k]>.14: raise RuntimeError('suction tool too far from parcel')
-        b=self.parcels[k]
-        rot=self.d.xmat[self.tool].reshape(3,3)
-        rel=rot.T@(self.d.xpos[b]-self.d.xpos[self.tool])
-        # MuJoCo weld data: anchor[0:3], relative position[3:6], quaternion[6:10].
-        self.m.eq_data[k,3:6]=rel
-        qa=np.empty(4); qb=np.empty(4); inv=np.empty(4); relq=np.empty(4)
-        mj.mju_mat2Quat(qa,self.d.xmat[self.tool]); mj.mju_mat2Quat(qb,self.d.xmat[b])
-        mj.mju_negQuat(inv,qa); mj.mju_mulQuat(relq,inv,qb)
-        self.m.eq_data[k,6:10]=relq
-        self.d.eq_active[k]=1; self.held=k
-        self.step(.3)
-        return k
+    def gripper_rgb(self):
+        camera=mj.MjvCamera();camera.lookat[:]=self.d.xpos[self.tool]+[0,0,-.06]
+        camera.distance=.70;camera.azimuth=135;camera.elevation=-25
+        self.r.disable_segmentation_rendering();self.r.update_scene(self.d,camera=camera)
+        return self.r.render().copy()
+
+    def grip_contacts(self):
+        forces=np.zeros((2,2))
+        for index,c in enumerate(self.d.contact):
+            pair={int(c.geom1),int(c.geom2)}
+            for f,pad in enumerate(self.finger_geoms):
+                for k,box in enumerate(self.box_geoms):
+                    if pair=={pad,box}:
+                        wrench=np.zeros(6);mj.mj_contactForce(self.m,self.d,index,wrench)
+                        forces[f,k]+=max(0.,float(wrench[0]))
+        return forces
+
+    def gripper(self,opening,seconds=.8):
+        q=self.goal.copy();q[6:]=opening
+        self.move(q,seconds)
+
+    def grasp(self):
+        """Close fingers and verify bilateral physical contact; creates no constraint."""
+        self.gripper(.075)
+        forces=self.grip_contacts()
+        candidates=[k for k in range(2) if min(forces[:,k])>.3]
+        self.grasp_events.append({'time_s':float(self.d.time),'normal_forces_n':forces.tolist(),'bilateral_candidates':candidates})
+        if len(candidates)!=1:
+            raise RuntimeError('grasp failed: both fingers must contact the same parcel')
+        if self.r is not None:Image.fromarray(self.gripper_rgb()).save(self.out/f'grasp_{len(self.records)+1}.png')
+        self.held=candidates[0]
+        return self.held
 
     def execute(self,command):
         start_time=float(self.d.time); start_col=self.collisions; start_furniture=self.furniture_contacts
@@ -235,16 +256,24 @@ class Simulation:
             det=self.vision.detect(rgb,intent['color']); self.detection=det; rec['detection']=det; self.step(.8)
             target=np.array(det['xy'])
             self.stage='APPROACH'; self.travel((-2.6,float(target[1])))
-            self.stage='PICK'; self.arm(target,.95); self.arm(target,.69,1.8)
-            k=self.attach(); rec['selected_parcel']=k
+            self.stage='PICK'; self.gripper(.15); self.arm(target,.95); self.arm(target,.69,1.8)
+            k=self.grasp(); rec['selected_parcel']=k
             self.arm(target,1.02,1.8)
+            if self.d.xpos[self.parcels[k],2]<.82:raise RuntimeError('parcel did not lift with the fingers')
+            self.monitor_grasp=True
+            self.grasp_events.append({'phase':'LIFT','parcel_position':self.d.xpos[self.parcels[k]].tolist(),'forces':self.grip_contacts().tolist()})
+            if self.r is not None:Image.fromarray(self.gripper_rgb()).save(self.out/f'lifted_{len(self.records)+1}.png')
+            rec['lifted_height_m']=float(self.d.xpos[self.parcels[k],2])
             # Stow within inflated footprint before travelling.
             self.arm(self.base_xy()+[.25,0],1.02,1.8)
+            self.grasp_events.append({'phase':'STOW','parcel_position':self.d.xpos[self.parcels[k]].tolist(),'forces':self.grip_contacts().tolist()})
             self.stage='TRANSPORT'; destination=DESTINATIONS[intent['destination']]
             route=self.travel(destination); rec['route']=route
+            self.grasp_events.append({'phase':'ARRIVED','parcel_position':self.d.xpos[self.parcels[k]].tolist(),'forces':self.grip_contacts().tolist()})
             self.stage='PLACE'; drop=np.array([2.6,destination[1]])
-            self.arm(drop,1.02); self.arm(drop,.69,1.8)
-            self.d.eq_active[k]=0; self.held=None; self.step(.8)
+            self.arm(drop,1.02); self.monitor_grasp=False; self.arm(drop,.69,1.8)
+            self.grasp_events.append({'phase':'BEFORE_RELEASE','parcel_position':self.d.xpos[self.parcels[k]].tolist(),'forces':self.grip_contacts().tolist()})
+            self.gripper(.15); self.held=None; self.step(.8)
             self.arm(drop,1.03)
             self.arm(self.base_xy()+[.25,0],1.03)
             pos=self.d.xpos[self.parcels[k]].copy()
@@ -255,14 +284,14 @@ class Simulation:
             if not rec['success']: raise RuntimeError('placement or collision verification failed')
             self.stage='DONE'; self.step(1.2)
         except (ValueError,RuntimeError) as exc:
-            rec['error']=str(exc); self.stage='ERROR'; self.step(.5)
+            rec['error']=str(exc); self.monitor_grasp=False;self.goal[:2]=0; self.stage='ERROR'; self.step(.5)
         rec['simulated_duration_s']=float(self.d.time-start_time)
         self.records.append(rec)
         self.save_results()
         return rec
 
     def save_results(self):
-        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with suction weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'video_speed':self.video_speed,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
+        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with two contact-friction fingers, no weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'gripper':{'type':'parallel_fingers','equality_constraints':int(self.m.neq),'events':self.grasp_events},'video_speed':self.video_speed,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
 
     def frame(self):
         self.r.disable_segmentation_rendering(); self.r.update_scene(self.d,camera=self.cam)
@@ -276,12 +305,15 @@ class Simulation:
         draw.text((24,47),self.command or 'Preparing warehouse',fill='white',font=font)
         draw.text((666,100),'STATE',fill='#8599b2',font=font)
         draw.text((666,132),self.stage,fill='#6ae0d4',font=font)
-        stage_ja={'INITIALIZE':'準備','PARSE':'指示を解釈','PERCEIVE':'画像から箱を認識','APPROACH':'荷物へ接近','PICK':'吸着して持ち上げ','TRANSPORT':'障害物を避けて配送','PLACE':'指定場所に配置','DONE':'配送完了','ERROR':'安全停止'}
+        stage_ja={'INITIALIZE':'準備','PARSE':'指示を解釈','PERCEIVE':'画像から箱を認識','APPROACH':'荷物へ接近','PICK':'指で挟んで持ち上げ','TRANSPORT':'障害物を避けて配送','PLACE':'指定場所に配置','DONE':'配送完了','ERROR':'安全停止'}
         draw.text((666,161),stage_ja.get(self.stage,''),fill='white',font=font)
         draw.text((666,193),f'Simulation: {self.d.time:5.1f}s',fill='white',font=font)
         draw.text((666,220),f'Obstacle contacts: {self.collisions}',fill='white',font=font)
-        draw.text((666,247),'RGB CAMERA / learned model',fill='#8599b2',font=font)
-        if self.vision_frame is not None:
+        closeup=self.stage in ['PICK','PLACE']
+        draw.text((666,247),'GRIPPER / physical contact' if closeup else 'RGB CAMERA / learned model',fill='#8599b2',font=font)
+        if closeup:
+            canvas.paste(Image.fromarray(self.gripper_rgb()).resize((280,210)),(666,290))
+        elif self.vision_frame is not None:
             cam=Image.fromarray(self.vision_frame.copy())
             if self.detection:
                 dr=ImageDraw.Draw(cam); x,y=self.detection['pixel_center']; dr.ellipse((x-15,y-15,x+15,y+15),outline='#00ff99',width=3)
@@ -290,7 +322,7 @@ class Simulation:
             draw.text((666,520),self.intent['color']+' > '+self.intent['destination'],fill='#6ae0d4',font=font)
         if getattr(self.lang,'name','')=='local_llm':
             draw.text((666,548),'LLM: Qwen3 4B / local',fill='#9bacc0',font=font)
-        draw.text((24,579),'Wheel-driven base + SCARA suction arm | known map / simulator pose',fill='#9bacc0',font=font)
+        draw.text((24,579),'Wheel-driven base + two-finger SCARA arm | known map / simulator pose',fill='#9bacc0',font=font)
         draw.text((24,608),f'Video: simulation time / {self.video_speed}倍速 ({self.video_speed}x playback, 15 fps)',fill='#9bacc0',font=font)
         if self.writer: self.writer.append_data(np.array(canvas))
         if self.frames%150==0: canvas.save(self.out/'preview.png')

@@ -45,5 +45,12 @@
     "position_feedback": "MuJoCo body pose",
     "supports": "low-friction spheres",
     "video_speed_recommended": 2
+  },
+  "gripper": {
+    "type": "parallel_contact_fingers",
+    "equality_constraints": 0,
+    "max_force_per_finger_n": 15,
+    "wrist_yaw_control": true,
+    "friction_model": "elliptic, impratio=10, noslip_iterations=3"
   }
 }

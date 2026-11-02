@@ -11,6 +11,7 @@ fi
 case "${1:-}" in
   --layout-evaluate) shift; exec "$runtime_python" tools/evaluate_layouts.py "$@" ;;
   --drive-evaluate) shift; exec "$runtime_python" tools/evaluate_drive.py "$@" ;;
+  --gripper-evaluate) shift; exec "$runtime_python" tools/evaluate_gripper.py "$@" ;;
   --evaluate) shift; exec "$runtime_python" evaluate.py "$@" ;;
   --llm-evaluate) shift; exec "$runtime_python" tools/evaluate_language.py "$@" ;;
   --test) shift; exec "$runtime_python" -m unittest discover -s tests -v "$@" ;;
