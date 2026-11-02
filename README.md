@@ -132,7 +132,7 @@ python run.py --demo --video --output outputs/llm_demo
 - `docs/LLM導入.md`: 選定理由と確認結果。
 
 最新の説明資料は `submission/説明資料_PAI最終課題_99691.pdf`（5ページ）です。LLM・YOLO・車輪・指把持・最新動画と評価結果を反映しています。生成用ソースは `tools/make_report.py`。この生成には最終動画と個別評価ログが必要です。以前のドラフトと `outputs/demo/` は導入前の版です。
-講義資料、モデル重み、生成動画、認証情報はGit管理から除外します。公開・アップロード・課題提出はまだ行っていません。
+講義資料、モデル重み、生成動画、認証情報はGit管理から除外します。ソースは https://github.com/miya33-dev/physical-ai-warehouse-robot で公開しています。YouTubeアップロードとOmnicampusへの課題提出は未実施です。
 
 参考: https://ollama.com/library/qwen3:4b-instruct-2507-q4_K_M
 GPU: https://docs.ollama.com/gpu
