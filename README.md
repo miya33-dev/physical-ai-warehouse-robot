@@ -6,10 +6,10 @@
 本プロジェクトの独自ソースコードは **AGPL-3.0-only** で提供します。[LICENSE](LICENSE) と [第三者ソフト・モデルの表示](THIRD_PARTY_NOTICES.md) を参照してください。元の依存ライブラリとモデルは、それぞれのライセンスを保持します。
 
 ## 処理が見える説明動画
-最新の説明動画は `outputs/explanatory_demo_hd/demo.mp4` です。3D映像、真上の全体画像に重ねたA*の探索・計画経路・実走行、LLMの実際のJSON応答、YOLOの検出枠または指先を同時に表示します。
+最新の説明動画は `outputs/explanatory_demo_large/demo.mp4` です。3D映像、真上の全体画像に重ねたA*の探索・計画経路・実走行、LLMの実際のJSON応答、YOLOの検出枠または指先を同時に表示します。
 
 ```sh
-./run.sh --demo --layout-seed 0 --distractors --video --video-speed 2 --explain-video --output outputs/explanatory_demo_hd
+./run.sh --demo --layout-seed 0 --distractors --video --video-speed 2 --explain-video --output outputs/explanatory_demo_large
 ```
 
 物理動作は約2倍速です。A*の探索は実際のログを見やすい速度で再生し、その間は物理時間を停止します。探索に実際にかかった時間の表示ではありません。[表示の意味・再現方法](docs/説明動画.md) を参照してください。

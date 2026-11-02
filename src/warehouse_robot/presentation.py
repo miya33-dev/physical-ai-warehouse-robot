@@ -87,12 +87,12 @@ def render_explanation(s):
     stages={'INITIALIZE':'準備','PARSE':'指示を解釈','PERCEIVE':'画像から対象を検出','APPROACH':'荷物へ接近','PICK':'指でつかむ','TRANSPORT':'配送','PLACE':'配置','DONE':'完了','ERROR':'停止'}
     d.text((1440,24),'状態：'+stages.get(s.stage,s.stage),font=font(24),fill='#72e7d4')
     d.text((1440,62),f'物理時間 {s.d.time:6.1f}s  /  接触検出 {s.collisions}',font=font(22),fill='#a6b8cc')
-    for box in [(24,110,936,768),(984,110,1896,768),(24,824,1200,1056),(1224,824,1896,1056)]:
+    for box in [(24,110,936,660),(984,110,1896,660),(24,714,960,1056),(984,714,1896,1056)]:
         d.rounded_rectangle(box,radius=10,fill='#111e2d',outline='#314458',width=2)
     d.text((44,120),'3D物理シミュレーション',font=font(27),fill='white')
     d.text((1004,120),'真上の全体画像 ＋ A*探索',font=font(27),fill='white')
     d.text((1004,153),'中央障害物を0.53m拡張 / 10cm格子・4近傍 / f = g + h',font=font(16),fill='#a6b8cc')
-    canvas.paste(scene.resize((768,576)),(96,184));canvas.paste(top.resize((768,576)),(1056,184))
+    canvas.paste(scene.resize((624,468)),(168,184));canvas.paste(top.resize((624,468)),(1128,184))
     trace=s.current_plan
     if trace:
         n=min(s.search_progress,len(trace['events']));event=trace['events'][n-1] if n else None
@@ -105,20 +105,21 @@ def render_explanation(s):
         if event:
             g=event['g'];h=event['h'];d.text((1500,122),f'g {g} + h {h} = f {g+h}',font=font(21),fill='#ffe26a')
     else:d.text((1100,182),'台車の移動開始時に探索します',font=font(20),fill='white')
-    d.text((32,784),'姿勢・接触・把持はMuJoCoの物理計算',font=font(21),fill='#a6b8cc')
+    d.text((32,675),'姿勢・接触・把持はMuJoCoの物理計算',font=font(21),fill='#a6b8cc')
     legend=[('#60baff','探索済み'),('#c68aff','探索候補'),('#ffb14b','安全余裕'),('#ffe25a','計画経路'),('#58f09d','実走行')]
     for i,(color,label) in enumerate(legend):
-        x=990+181*i;d.rectangle((x,786,x+16,802),fill=color);d.text((x+23,780),label,font=font(19),fill='#dce7f3')
-    d.text((42,836),'LLM出力：実際に返ったJSON  |  Qwen3 4B / ローカルGPU',font=font(23),fill='#72e7d4')
+        x=990+181*i;d.rectangle((x,677,x+16,693),fill=color);d.text((x+23,671),label,font=font(19),fill='#dce7f3')
+    d.text((44,726),'LLM出力：実際に返ったJSON',font=font(28),fill='#72e7d4')
+    d.text((44,764),'Qwen3 4B / ローカルGPU',font=font(22),fill='#a6b8cc')
     output=json.dumps(s.llm_output,ensure_ascii=False,indent=2) if s.llm_output is not None else (('LLM応答を取得できませんでした' if s.stage=='ERROR' else 'LLMの応答待ち') if getattr(s.lang,'name','')=='local_llm' else '従来分類器を使用（LLMなし）')
-    block(d,output,(44,874),1135,172,22)
-    image,label=detail(s);image=ImageOps.contain(image,(208,164))
-    d.text((1242,836),label,font=font(23),fill='#72e7d4');canvas.paste(image,(1240+(208-image.width)//2,880))
-    d.text((1468,882),'認識：'+getattr(getattr(s,'vision',None),'name','Gaussian'),font=font(23),fill='white')
+    block(d,output,(44,804),896,240,28)
+    image,label=detail(s);image=ImageOps.contain(image,(400,288))
+    d.text((1004,726),label,font=font(28),fill='#72e7d4');canvas.paste(image,(1004+(400-image.width)//2,758))
+    d.text((1424,786),'認識：'+getattr(getattr(s,'vision',None),'name','Gaussian'),font=font(23),fill='white')
     if s.detection:
-        x,y=s.detection['xy'];d.text((1468,920),f'X {x:.2f}m / Y {y:.2f}m',font=font(22),fill='white')
-        if 'score' in s.detection:d.text((1468,958),f'検出スコア {s.detection["score"]:.2f}',font=font(22),fill='white')
-    if s.intent:d.text((1468,1000),s.intent['color']+' → '+s.intent['destination'],font=font(22),fill='#72e7d4')
+        x,y=s.detection['xy'];d.text((1424,844),f'X {x:.2f}m / Y {y:.2f}m',font=font(22),fill='white')
+        if 'score' in s.detection:d.text((1424,902),f'検出スコア {s.detection["score"]:.2f}',font=font(22),fill='white')
+    if s.intent:d.text((1424,976),s.intent['color']+' → '+s.intent['destination'],font=font(22),fill='#72e7d4')
     footer=f'物理動作：約{s.video_speed}倍速 | A*は実際の探索ログを低速再生（再生中は物理時間停止） | 既知地図・シミュレータ自己位置'
     d.text((28,1058),footer,font=font(14),fill='#9db1c5')
     return canvas
