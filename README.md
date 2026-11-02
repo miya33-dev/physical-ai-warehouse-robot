@@ -2,6 +2,12 @@
 
 赤・青の箱を文章で指定し、画像から認識して2指グリッパで持ち上げ、障害物を避けて指定場所へ置くMuJoCoシミュレーションです。
 
+## デモ動画
+
+[YouTubeでデモを見る：PAI最終課題_99691](https://youtu.be/P0fBPpkUgUI)（約2分29秒）
+
+LLMのJSON応答、YOLOの検出枠、A*の探索・計画経路と実走行、指把持の様子を表示します。物理動作は約2倍速。A*の探索ログ再生中は物理時間を停止します。
+
 ## ライセンス
 本プロジェクトの独自ソースコードは **AGPL-3.0-only** で提供します。[LICENSE](LICENSE) と [第三者ソフト・モデルの表示](THIRD_PARTY_NOTICES.md) を参照してください。元の依存ライブラリとモデルは、それぞれのライセンスを保持します。
 
@@ -132,7 +138,7 @@ python run.py --demo --video --output outputs/llm_demo
 - `docs/LLM導入.md`: 選定理由と確認結果。
 
 最新の説明資料は [提出用PDF（5ページ）](submission/説明資料_PAI最終課題_99691.pdf) です。LLM・YOLO・車輪・指把持・最新動画と評価結果を反映しています。生成用ソースは `tools/make_report.py`。この生成には最終動画と個別評価ログが必要です。以前のドラフトと `outputs/demo/` は導入前の版です。
-講義資料、モデル重み、生成動画、認証情報はGit管理から除外します。ソースは https://github.com/miya33-dev/physical-ai-warehouse-robot で公開しています。YouTubeアップロードとOmnicampusへの課題提出は未実施です。
+講義資料、モデル重み、生成動画、認証情報はGit管理から除外します。ソースは https://github.com/miya33-dev/physical-ai-warehouse-robot で公開しています。YouTube動画は上記のリンクから視聴できます（限定公開）。Omnicampusへの課題提出は未実施です。
 
 参考: https://ollama.com/library/qwen3:4b-instruct-2507-q4_K_M
 GPU: https://docs.ollama.com/gpu
