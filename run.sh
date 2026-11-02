@@ -9,6 +9,7 @@ else
   export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 fi
 case "${1:-}" in
+  --layout-evaluate) shift; exec "$runtime_python" tools/evaluate_layouts.py "$@" ;;
   --evaluate) shift; exec "$runtime_python" evaluate.py "$@" ;;
   --llm-evaluate) shift; exec "$runtime_python" tools/evaluate_language.py "$@" ;;
   --test) shift; exec "$runtime_python" -m unittest discover -s tests -v "$@" ;;

@@ -43,6 +43,18 @@
 
 このMacでは `.runtime/ollama` にOllama公式実行ファイル、`models/` に重み、`.packages/` にPython依存を置いています。いずれもGit管理外です。推論は `127.0.0.1:11435` で動きます。クラウド推論は無効です。Ollamaの標準設定はホームの `.ollama` に作成されます。
 
+## 荷物の配置を変える
+```sh
+# 同じ番号で同じ配置を再現。別の番号にすると配置が変わる
+./run.sh --demo --layout-seed 0 --video --output outputs/layout_seed_0
+# JSONで座標を指定
+./run.sh --demo --layout-file configs/layout_example.json --video --output outputs/custom_layout
+# 認識器を固定した36ケースの検証
+./run.sh --layout-evaluate
+```
+
+台の上の対応範囲と実測結果は [配置変更](docs/配置変更.md) を参照。初期位置を変えたLLM版動画は `outputs/random_layout_demo/demo.mp4` に保存しています。配置オプションを付けなければ従来の固定配置です。
+
 ## 従来版を明示的に使う
 導入前のNaive Bayes分類器も残しています。
 
@@ -50,7 +62,7 @@
 ./run.sh --language naive_bayes --demo --video --output outputs/baseline_demo
 ```
 
-導入前のGitコミットは `494db94`、ブランチは `codex/warehouse-baseline`。現在は `codex/llm-integration` です。
+導入前のGitコミットは `494db94`、ブランチは `codex/warehouse-baseline`。LLM導入は `codex/llm-integration`、配置変更は `codex/randomized-layouts` です。
 
 ## 評価
 ```sh

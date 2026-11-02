@@ -10,6 +10,7 @@ from PIL import Image,ImageDraw,ImageFont
 from .planning import plan
 from .language import IntentModel
 from .vision import PixelModel
+from .layout import validate_layout
 
 ROOT=Path(__file__).resolve().parents[1]
 if ROOT.name=='src': ROOT=ROOT.parent
@@ -34,12 +35,37 @@ class Simulation:
         self.box_geoms=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['box_a','box_b']]
         self.contact_pairs=set(); self.collisions=0; self.held=None; self.stage='INITIALIZE'; self.command=''; self.intent=None
         self.frames=0; self.records=[]; self.trail=[]; self.vision_frame=None; self.detection=None
+        self.layout_metadata={'mode':'fixed'}
         self.lang=language_model if language_model is not None else IntentModel(); self.writer=None
-        if video:
-            import imageio.v2 as iio
-            self.writer=iio.get_writer(str(self.out/'demo.mp4'),fps=15,codec='libx264',quality=8,macro_block_size=16)
+        if video: self.start_video()
         mj.mj_forward(self.m,self.d)
         self.step(.6)
+
+    def start_video(self):
+        if self.writer is not None:
+            raise ValueError('video recording is already active')
+        import imageio.v2 as iio
+        self.writer=iio.get_writer(str(self.out/'demo.mp4'),fps=15,codec='libx264',quality=8,macro_block_size=16)
+
+    def set_layout(self,layout,seed=None):
+        """Reset parcel initial poses before inference; requires frozen vision model."""
+        if not hasattr(self,'vision'):
+            raise ValueError('train or load the vision model before setting evaluation layout')
+        if self.records or self.held is not None or any(self.d.eq_active):
+            raise ValueError('layout can only change before any delivery starts')
+        layout=validate_layout(layout)
+        for color,body in zip(['red','blue'],self.parcels):
+            joint=int(self.m.body_jntadr[body])
+            q=int(self.m.jnt_qposadr[joint]); v=int(self.m.jnt_dofadr[joint])
+            self.d.qpos[q:q+3]=[*layout[color],.59]
+            self.d.qpos[q+3:q+7]=[1,0,0,0]
+            self.d.qvel[v:v+6]=0
+        self.layout_metadata={'mode':'random' if seed is not None else 'custom','seed':seed,'requested_xy':layout}
+        mj.mj_forward(self.m,self.d)
+        self.step(.4)
+        self.vision_frame=self.rgb(); self.detection=None
+        Image.fromarray(self.vision_frame).save(self.out/'layout_camera.png')
+        self.save_results()
 
     def close(self):
         if self.writer: self.writer.close(); self.writer=None
@@ -181,7 +207,7 @@ class Simulation:
         return rec
 
     def save_results(self):
-        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['XY position-served base, no wheel dynamics','SCARA arm with suction weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
+        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['XY position-served base, no wheel dynamics','SCARA arm with suction weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
 
     def frame(self):
         self.r.disable_segmentation_rendering(); self.r.update_scene(self.d,camera=self.cam)
@@ -190,7 +216,8 @@ class Simulation:
         draw=ImageDraw.Draw(canvas)
         try: font=ImageFont.truetype('/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc',18)
         except OSError: font=ImageFont.load_default(size=18)
-        draw.text((24,16),'AI WAREHOUSE | PICK & DELIVER',fill='#6ae0d4',font=font)
+        layout_label=(' | Seed '+str(self.layout_metadata['seed'])) if self.layout_metadata.get('seed') is not None else (' | Custom layout' if self.layout_metadata['mode']=='custom' else '')
+        draw.text((24,16),'AI WAREHOUSE | PICK & DELIVER'+layout_label,fill='#6ae0d4',font=font)
         draw.text((24,47),self.command or 'Preparing warehouse',fill='white',font=font)
         draw.text((666,100),'STATE',fill='#8599b2',font=font)
         draw.text((666,132),self.stage,fill='#6ae0d4',font=font)
