@@ -4,6 +4,10 @@
 
 ## デモ動画
 
+以下のプレイヤーから、このページ内で再生できます。
+
+https://github.com/user-attachments/assets/d433a82e-8a84-4b8e-b0ba-a7832b0f46ad
+
 [YouTubeでデモを見る：PAI最終課題_99691](https://youtu.be/P0fBPpkUgUI)（約2分29秒）
 
 LLMのJSON応答、YOLOの検出枠、A*の探索・計画経路と実走行、指把持の様子を表示します。物理動作は約2倍速。A*の探索ログ再生中は物理時間を停止します。
