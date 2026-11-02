@@ -10,6 +10,7 @@ else
 fi
 case "${1:-}" in
   --evaluate) shift; exec "$runtime_python" evaluate.py "$@" ;;
+  --llm-evaluate) shift; exec "$runtime_python" tools/evaluate_language.py "$@" ;;
   --test) shift; exec "$runtime_python" -m unittest discover -s tests -v "$@" ;;
   *) exec "$runtime_python" run.py "$@" ;;
 esac

@@ -18,3 +18,6 @@ submission/*
 /.ollama/
 *.gguf
 *.safetensors
+
+# Local inference executable
+/.runtime/

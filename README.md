@@ -1,59 +1,93 @@
 # 自然言語指示による倉庫内ピッキング・配送ロボット
 
-赤・青の箱を、文章による指示に応じて選び、吸着アームで持ち上げ、障害物を避けて指定の台に置くMuJoCoシミュレーションです。
+赤・青の箱を文章で指定し、画像から認識して吸着アームで持ち上げ、障害物を避けて指定場所へ置くMuJoCoシミュレーションです。
 
-## 今できること
-- 指示をローカル学習の文字n-gram分類器で「対象色・配送先」に変換。
-- 合成画像で学習したRGB分類器でカメラ画像から箱を選択。
-- SCARAアームの逆運動学、吸着拘束、既知地図のA*で配送。
-- 存在しない対象や未対応・曖昧な指示は停止。
-- MP4動画、カメラ画像、学習モデル、実行ログを出力。
+## 言語理解はローカルLLMへ
+- 使用モデルは **Qwen3-4B-Instruct-2507 / Q4_K_M** の1種類。
+- Ollamaタグ: `qwen3:4b-instruct-2507-q4_K_M`。ダウンロード約2.5GB。
+- MacではMetal経由でGPU推論。実際の配置は `./tools/ollama.sh ps` で確認。
+- 日本語・英語の単発指示を、対象色・配送先のJSONへ変換。
+- JSON構造と値を検証し、曖昧な指示、未対応の作業、否定・条件付き指示は停止。
+- 接続・推論に失敗した場合、別モデルや従来方式へ自動で切り替えません。
 
-初版では車輪の動力学を扱わずXY位置サーボで台車を移動し、指による把持の代わりに吸着を固定拘束で表現します。実機・SLAM・LLM・強化学習は使用していません。
+画像認識は従来どおり、合成画像で学習する小型Gaussian分類器を使います。経路はA*、アームは逆運動学と位置サーボ、吸着は固定拘束です。台車はXY位置サーボで動かし、車輪の駆動はモデル化していません。
 
 ## このMacで動かす
-最終課題フォルダをターミナルで開き、以下を実行します。`.packages`に必要ライブラリを導入済みです。
+ターミナルで本フォルダを開き、まずローカル推論サーバーを起動します。すでに起動中なら再起動は不要です。
 
 ```sh
-./run.sh --command '赤い箱を出荷場所へ運んで' --video
-./run.sh --demo --video --output outputs/demo
+./tools/start_llm.sh
 ```
 
-`--demo` は赤→出荷、青→保管を連続実行します。既定の単発実行では `outputs/first_run/`、デモでは上記の指定先に保存します。同じ出力先では生成物を上書きします。画面描画可能なログインセッションで実行してください。
+別のターミナルで実行します。
+
+```sh
+# まず文章の解釈のみ確認
+./run.sh --parse-only --command '赤い荷物を発送エリアまで持っていって'
+
+# LLMを使う2件の配送デモ
+./run.sh --demo --video --output outputs/llm_demo
+
+# 単発の配送
+./run.sh --command '青の荷物を倉庫にしまって' --video --output outputs/llm_single
+
+# GPU利用とモデルの読み込み状況
+./tools/ollama.sh ps
+```
+
+同じ出力先では生成物を上書きします。起動したサーバーは、そのターミナルでCtrl+Cすると停止します。モデルを再取得する場合はサーバー起動中に以下を実行します。
+
+```sh
+./tools/ollama.sh pull qwen3:4b-instruct-2507-q4_K_M
+```
+
+このMacでは `.runtime/ollama` にOllama公式実行ファイル、`models/` に重み、`.packages/` にPython依存を置いています。いずれもGit管理外です。推論は `127.0.0.1:11435` で動きます。クラウド推論は無効です。Ollamaの標準設定はホームの `.ollama` に作成されます。
+
+## 従来版を明示的に使う
+導入前のNaive Bayes分類器も残しています。
+
+```sh
+./run.sh --language naive_bayes --demo --video --output outputs/baseline_demo
+```
+
+導入前のGitコミットは `494db94`、ブランチは `codex/warehouse-baseline`。現在は `codex/llm-integration` です。
+
+## 評価
+```sh
+./run.sh --test          # 単体テスト（LLM APIはモック）
+./run.sh --llm-evaluate  # 実際のLLMで24件の指示を評価
+./run.sh --evaluate      # 従来の分類器を使う6ケースの物理検証
+```
+
+LLM評価は言い換え、日英の指示、情報不足、未知の対象・場所、否定、複数作業、条件付き、質問、規則変更要求を含みます。モデルを複数比較する評価ではありません。実行結果は `outputs/llm_evaluation/results.json` に保存します。固定した少数ケースの結果を、未知の指示に対する安全保証とは扱いません。
 
 ## 別環境での再現
-Python 3.12を想定します。依存関係の固定バージョンは `requirements.txt` にあります。
+Python 3.12と、公式のOllamaを用意します。
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python run.py --demo --video --output outputs/demo
+./tools/start_llm.sh
+# 別ターミナルで同じ仮想環境を有効化してから
+./tools/ollama.sh pull qwen3:4b-instruct-2507-q4_K_M
+python run.py --demo --video --output outputs/llm_demo
 ```
 
-`.packages` はこのMac向けのローカル依存ファイルです。別環境にはコピーせず、仮想環境にインストールしてください。LinuxではMuJoCo描画用のOpenGL/EGL等の設定が別途必要になることがあります。
+ローカル依存フォルダを別のマシンへコピーせず、各環境で依存を導入してください。LinuxではMuJoCo描画用OpenGL/EGL等の設定が別途必要な場合があります。
 
-## 検証
-通常の依存環境では以下で実行できます。
+## ファイル
+- `assets/warehouse.xml`: 独自の倉庫・台車・SCARAアーム。
+- `src/warehouse_robot/llm_language.py`: LLMプロンプト・JSONスキーマ・出力検証。
+- `src/warehouse_robot/vision.py`: 学習した画素分類器と座標変換。
+- `src/warehouse_robot/planning.py`: 既知地図のA*。
+- `src/warehouse_robot/simulation.py`: 物理・制御・動画出力。
+- `tools/evaluate_language.py`: 1モデルの指示理解評価。
+- `docs/LLM導入.md`: 選定理由と確認結果。
 
-```sh
-PYTHONPATH=src python -m unittest discover -s tests -v
-python evaluate.py
-```
+`outputs/demo/` と既存の説明資料PDFは導入前の版です。LLM版の動画は `outputs/llm_demo/` に区別します。説明資料PDFはLLM版へ未更新です。
+講義資料、モデル重み、生成動画、認証情報はGit管理から除外します。公開・アップロード・課題提出はまだ行っていません。
 
-このMacのローカル依存を使う場合は `./run.sh --evaluate` または `./run.sh --test` を利用できます。
-
-2026-11-02に4通りの配送、色の入れ替え、対象なしの6ケースが通過。配置誤差は約2.5cm、障害物接触は0でした。固定した合成シーンでの確認であり、未知環境の成功率を示しません。
-
-## 主なファイル
-- `assets/warehouse.xml`: 独自の倉庫・移動台車・SCARAアームモデル。
-- `src/warehouse_robot/language.py`: 指示分類器と入力検証。
-- `src/warehouse_robot/vision.py`: 学習した画素分類器と固定カメラの座標変換。
-- `src/warehouse_robot/planning.py`: 障害物を膨張させた4近傍A*。
-- `src/warehouse_robot/simulation.py`: 物理・制御・状態遷移・動画生成。
-- `outputs/demo/demo.mp4`: 約2分30秒の動作動画。
-- `outputs/evaluation/summary.json`: 統合検証結果。
-- `docs/実装と検証.md`: AIの構成と実測結果、制約。
-- `submission/説明資料_PAI最終課題_ドラフト.pdf`: 説明資料のドラフト。
-
-講義配布PDF、受講者専用資料、ローカル依存、出力物はコード公開用リポジトリに混ぜません。公開・アップロード・課題提出はまだ行っていません。
+参考: https://ollama.com/library/qwen3:4b-instruct-2507-q4_K_M
+GPU: https://docs.ollama.com/gpu
+構造化出力: https://docs.ollama.com/capabilities/structured-outputs

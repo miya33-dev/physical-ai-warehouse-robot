@@ -1,5 +1,5 @@
 {
-  "status": "prototype_implemented",
+  "status": "local_llm_integrated",
   "objects": [
     {
       "color": "red",
@@ -20,7 +20,7 @@
     "青い箱を保管場所へ運んで"
   ],
   "ai_models": {
-    "language": "supervised character n-gram multinomial Naive Bayes (144 generated instructions)",
+    "language": "Qwen3-4B-Instruct-2507 Q4_K_M via local Ollama, Metal GPU; JSON plus independent validation",
     "vision": "supervised RGB Gaussian classifier (synthetic rendered pixels)"
   },
   "simulator": "MuJoCo 3.3.7"

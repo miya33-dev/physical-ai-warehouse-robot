@@ -16,7 +16,7 @@ if ROOT.name=='src': ROOT=ROOT.parent
 DESTINATIONS={'shipping':(1.9,-1.25),'storage':(1.9,1.25)}
 
 class Simulation:
-    def __init__(self,out,render=True,video=False):
+    def __init__(self,out,render=True,video=False,language_model=None):
         self.out=Path(out); self.out.mkdir(parents=True,exist_ok=True)
         self.m=mj.MjModel.from_xml_path(str(ROOT/'assets/warehouse.xml'))
         self.d=mj.MjData(self.m)
@@ -34,7 +34,7 @@ class Simulation:
         self.box_geoms=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['box_a','box_b']]
         self.contact_pairs=set(); self.collisions=0; self.held=None; self.stage='INITIALIZE'; self.command=''; self.intent=None
         self.frames=0; self.records=[]; self.trail=[]; self.vision_frame=None; self.detection=None
-        self.lang=IntentModel(); self.writer=None
+        self.lang=language_model if language_model is not None else IntentModel(); self.writer=None
         if video:
             import imageio.v2 as iio
             self.writer=iio.get_writer(str(self.out/'demo.mp4'),fps=15,codec='libx264',quality=8,macro_block_size=16)
@@ -123,7 +123,7 @@ class Simulation:
         for k,g in enumerate(self.box_geoms): truth[(seg[:,:,0]==g)&(seg[:,:,1]==int(mj.mjtObj.mjOBJ_GEOM))]=k+1
         pred=self.vision.predict(rgb).reshape(truth.shape)
         acc={name:float((pred[truth==k]==k).mean()) for k,name in enumerate(['background','red','blue'])}
-        (self.out/'training_metrics.json').write_text(json.dumps({'seed':42,'training_samples':self.vision.n_train,'language_training_samples':self.lang.n_train,'nominal_heldout_pixel_accuracy':acc,'note':'synthetic fixed-camera scene only; not real-world validation'},indent=2))
+        (self.out/'training_metrics.json').write_text(json.dumps({'seed':42,'training_samples':self.vision.n_train,'language_training_samples':getattr(self.lang,'n_train',None),'nominal_heldout_pixel_accuracy':acc,'note':'synthetic fixed-camera scene only; not real-world validation'},indent=2))
         Image.fromarray(rgb).save(self.out/'camera.png')
         return acc
 
@@ -181,7 +181,7 @@ class Simulation:
         return rec
 
     def save_results(self):
-        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['XY position-served base, no wheel dynamics','SCARA arm with suction weld','known map and fixed calibrated overhead camera','small trained classifiers; not an LLM'],'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
+        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['XY position-served base, no wheel dynamics','SCARA arm with suction weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
 
     def frame(self):
         self.r.disable_segmentation_rendering(); self.r.update_scene(self.d,camera=self.cam)
@@ -206,6 +206,8 @@ class Simulation:
             canvas.paste(cam.resize((280,210)),(666,290))
         if self.intent:
             draw.text((666,520),self.intent['color']+' > '+self.intent['destination'],fill='#6ae0d4',font=font)
+        if getattr(self.lang,'name','')=='local_llm':
+            draw.text((666,548),'LLM: Qwen3 4B / local',fill='#9bacc0',font=font)
         draw.text((24,579),'Prototype: XY servo base + SCARA suction arm | fixed map',fill='#9bacc0',font=font)
         draw.text((24,608),'Video timing: simulation time (15 fps; ~1x)',fill='#9bacc0',font=font)
         if self.writer: self.writer.append_data(np.array(canvas))

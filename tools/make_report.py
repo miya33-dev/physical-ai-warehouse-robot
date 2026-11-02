@@ -1,3 +1,4 @@
+# Generates the pre-LLM baseline report; update content before LLM submission.
 from pathlib import Path
 import os
 from reportlab.pdfgen import canvas
