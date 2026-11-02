@@ -1,0 +1,27 @@
+{
+  "status": "prototype_implemented",
+  "objects": [
+    {
+      "color": "red",
+      "shape": "box"
+    },
+    {
+      "color": "blue",
+      "shape": "box"
+    }
+  ],
+  "destinations": [
+    "shipping",
+    "storage"
+  ],
+  "obstacles": "static",
+  "commands": [
+    "赤い箱を出荷場所へ運んで",
+    "青い箱を保管場所へ運んで"
+  ],
+  "ai_models": {
+    "language": "supervised character n-gram multinomial Naive Bayes (144 generated instructions)",
+    "vision": "supervised RGB Gaussian classifier (synthetic rendered pixels)"
+  },
+  "simulator": "MuJoCo 3.3.7"
+}

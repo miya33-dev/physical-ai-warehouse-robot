@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+.DS_Store
+outputs/*
+!outputs/.gitkeep
+submission/*
+!submission/.gitkeep
+*.pdf
+
+.packages/
+
+# Local LLM weights and runtime caches
+/models/
+/.cache/
+/.ollama/
+*.gguf
+*.safetensors
