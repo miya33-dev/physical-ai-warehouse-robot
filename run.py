@@ -11,6 +11,7 @@ import argparse
 p=argparse.ArgumentParser()
 p.add_argument('--command',default='赤い箱を出荷場所へ運んで')
 p.add_argument('--video',action='store_true')
+p.add_argument('--explain-video',action='store_true',help='Show real LLM JSON and overhead A* search/trajectory')
 p.add_argument('--video-speed',type=int,choices=[1,2],default=1)
 p.add_argument('--vision',choices=['yolo','gaussian'],default='yolo')
 p.add_argument('--vision-device',choices=['mps','cpu'],default='mps')
@@ -55,7 +56,7 @@ try:
         import json
         s.set_layout(json.loads(a.layout_file.read_text()))
     if a.distractors:s.enable_distractors()
-    if a.video: s.start_video(speed=a.video_speed)
+    if a.video: s.start_video(speed=a.video_speed,explain=a.explain_video)
     demo_commands=['赤い荷物を発送エリアまで持っていって','青の荷物を倉庫にしまって'] if a.language=='llm' else ['赤い箱を出荷場所へ運んで','青い箱を保管場所へ運んで']
     commands=demo_commands if a.demo else [a.command]
     if a.demo: s.step(3.)

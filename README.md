@@ -5,6 +5,15 @@
 ## ライセンス
 本プロジェクトの独自ソースコードは **AGPL-3.0-only** で提供します。[LICENSE](LICENSE) と [第三者ソフト・モデルの表示](THIRD_PARTY_NOTICES.md) を参照してください。元の依存ライブラリとモデルは、それぞれのライセンスを保持します。
 
+## 処理が見える説明動画
+最新の説明動画は `outputs/explanatory_demo_hd/demo.mp4` です。3D映像、真上の全体画像に重ねたA*の探索・計画経路・実走行、LLMの実際のJSON応答、YOLOの検出枠または指先を同時に表示します。
+
+```sh
+./run.sh --demo --layout-seed 0 --distractors --video --video-speed 2 --explain-video --output outputs/explanatory_demo_hd
+```
+
+物理動作は約2倍速です。A*の探索は実際のログを見やすい速度で再生し、その間は物理時間を停止します。探索に実際にかかった時間の表示ではありません。[表示の意味・再現方法](docs/説明動画.md) を参照してください。
+
 ## CNNによるキューブ検出
 学習済みYOLO26nを合成画像で追加学習し、全RGB画像から赤・青のキューブの枠・クラス・スコアを推定します。球・円柱・薄い板を含む画像も学習・評価に使います。推論時にシミュレータの正解IDは渡しません。
 
@@ -77,7 +86,7 @@
 導入前のGitコミットは `494db94`、ブランチは `codex/warehouse-baseline`。LLM導入は `codex/llm-integration`、配置変更は `codex/randomized-layouts`、車輪駆動は `codex/wheel-drive`、指把持は `codex/finger-gripper`、検出器導入は `codex/yolo-cube-detection` です。
 
 ## 指でつかむ
-最新動画は `outputs/finger_llm_demo/demo.mp4`（約2分19秒・2倍速を明記）。指先の拡大表示付きです。通常・指開放・低摩擦の比較は `./run.sh --gripper-evaluate` で実行できます。仕組みと制約は [指把持](docs/指把持.md) を参照。
+指把持導入時の動画は `outputs/finger_llm_demo/demo.mp4`（約2分19秒・2倍速を明記）。指先の拡大表示付きです。通常・指開放・低摩擦の比較は `./run.sh --gripper-evaluate` で実行できます。仕組みと制約は [指把持](docs/指把持.md) を参照。
 
 ## 車輪での走行
 車輪導入時の動画は `outputs/wheel_llm_demo/demo.mp4`（約1分46秒・2倍速を明記）。車輪の前進・旋回・摩擦の検証は `./run.sh --drive-evaluate` で実行できます。駆動方式と限界は [車輪駆動](docs/車輪駆動.md) を参照。

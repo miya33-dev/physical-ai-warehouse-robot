@@ -44,19 +44,20 @@ class Simulation:
         self.box_geoms=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['box_a','box_b']]
         self.contact_pairs=set(); self.collisions=0; self.held=None; self.stage='INITIALIZE'; self.command=''; self.intent=None
         self.frames=0; self.records=[]; self.trail=[]; self.vision_frame=None; self.detection=None
+        self.explain_video=False;self.plan_records=[];self.current_plan=None;self.search_progress=0;self.search_animating=False;self.executed_trail=[];self.current_actual=[];self.llm_output=None
         self.layout_metadata={'mode':'fixed'};self.distractor_metadata=[]
         self.lang=language_model if language_model is not None else IntentModel(); self.writer=None
         if video: self.start_video()
         mj.mj_forward(self.m,self.d)
         self.step(.6)
 
-    def start_video(self,speed=1):
+    def start_video(self,speed=1,explain=False):
         if self.writer is not None:
             raise ValueError('video recording is already active')
         if speed not in [1,2]:raise ValueError('video speed must be 1 or 2')
-        self.video_speed=speed
+        self.video_speed=speed;self.explain_video=explain
         import imageio.v2 as iio
-        self.writer=iio.get_writer(str(self.out/'demo.mp4'),fps=15,codec='libx264',quality=8,macro_block_size=16)
+        self.writer=iio.get_writer(str(self.out/'demo.mp4'),fps=15,codec='libx264',quality=8,macro_block_size=2)
 
     def set_layout(self,layout,seed=None):
         """Reset parcel initial poses before inference; requires frozen vision model."""
@@ -117,6 +118,10 @@ class Simulation:
                 if self.obstacle in (a,b) and (a in self.robot_geoms or b in self.robot_geoms or a in self.box_geoms or b in self.box_geoms):
                     if c.dist<-.001:
                         self.collisions+=1; self.contact_pairs.add(tuple(sorted((a,b))))
+            if round(self.d.time/self.m.opt.timestep)%17==0:
+                position=self.base_xy().tolist()
+                if not self.executed_trail or np.linalg.norm(np.array(position)-self.executed_trail[-1])>.005:
+                    self.executed_trail.append(position);self.current_actual.append(position)
             if self.writer and round(self.d.time/self.m.opt.timestep)%(17*self.video_speed)==0:
                 self.frame()
 
@@ -164,7 +169,17 @@ class Simulation:
         self.stop()
 
     def travel(self,xy):
-        start=self.base_xy(); route=plan(start,xy)
+        start=self.base_xy();trace={};route=plan(start,xy,trace=trace)
+        self.current_actual=[start.tolist()];trace['actual_path']=self.current_actual
+        trace['phase']=self.stage;trace['command']=self.command;trace['sim_time_s']=float(self.d.time)
+        self.current_plan=trace;self.plan_records.append(trace)
+        self.search_progress=len(trace['events'])
+        if self.writer and self.explain_video:
+            self.search_animating=True
+            for frame in range(38):
+                self.search_progress=math.ceil((frame+1)*len(trace['events'])/38)
+                self.frame()
+            self.search_animating=False
         self.trail.extend(route)
         points=corners(route)
         if np.linalg.norm(np.array(points[-1])-xy)>.005:points.append(tuple(xy))
@@ -264,8 +279,14 @@ class Simulation:
     def execute(self,command):
         start_time=float(self.d.time); start_col=self.collisions; start_furniture=self.furniture_contacts
         rec={'command':command,'success':False}; self.command=command
+        self.llm_output=None;self.intent=None;self.detection=None
         try:
-            self.stage='PARSE'; intent=self.lang.predict(command); self.intent=intent; rec['intent']=intent; self.step(.8)
+            self.stage='PARSE'; intent=self.lang.predict(command); self.intent=intent; rec['intent']=intent
+            raw=getattr(self.lang,'last_response',None)
+            if raw is not None:
+                self.llm_output={k:raw[k] for k in ['decision','target_color','destination','message']}
+                rec['llm_response']=self.llm_output.copy()
+            self.step(.8)
             self.stage='PERCEIVE'; rgb=self.rgb(); self.vision_frame=rgb
             det=self.vision.detect(rgb,intent['color']); self.detection=det; rec['detection']=det; self.step(.8)
             target=np.array(det['xy'])
@@ -298,6 +319,10 @@ class Simulation:
             if not rec['success']: raise RuntimeError('placement or collision verification failed')
             self.stage='DONE'; self.step(1.2)
         except (ValueError,RuntimeError) as exc:
+            raw=getattr(self.lang,'last_response',None)
+            if raw is not None and self.llm_output is None:
+                self.llm_output={k:raw[k] for k in ['decision','target_color','destination','message']}
+                rec['llm_response']=self.llm_output.copy()
             rec['error']=str(exc); self.monitor_grasp=False;self.goal[:2]=0; self.stage='ERROR'; self.step(.5)
         rec['simulated_duration_s']=float(self.d.time-start_time)
         self.records.append(rec)
@@ -305,9 +330,17 @@ class Simulation:
         return rec
 
     def save_results(self):
-        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with two contact-friction fingers, no weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'vision_backend':getattr(getattr(self,'vision',None),'name','gaussian'),'vision_weights_sha256':getattr(getattr(self,'vision',None),'sha256',None),'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'distractors':self.distractor_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'gripper':{'type':'parallel_fingers','equality_constraints':int(self.m.neq),'events':self.grasp_events},'video_speed':self.video_speed,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
+        (self.out/'planning.json').write_text(json.dumps({'search_replay':'actual A* pop/open log; video replay is slowed and does not represent compute duration','plans':self.plan_records,'executed_trail':self.executed_trail},ensure_ascii=False,indent=2))
+        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with two contact-friction fingers, no weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'vision_backend':getattr(getattr(self,'vision',None),'name','gaussian'),'vision_weights_sha256':getattr(getattr(self,'vision',None),'sha256',None),'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'distractors':self.distractor_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'gripper':{'type':'parallel_fingers','equality_constraints':int(self.m.neq),'events':self.grasp_events},'video_speed':self.video_speed,'explain_video':self.explain_video,'planning_log':'planning.json','records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
 
     def frame(self):
+        if self.explain_video:
+            from .presentation import render_explanation
+            canvas=render_explanation(self)
+            if self.writer:self.writer.append_data(np.array(canvas))
+            if self.frames%150==0:canvas.save(self.out/'preview.png')
+            self.frames+=1
+            return
         self.r.disable_segmentation_rendering(); self.r.update_scene(self.d,camera=self.cam)
         view=self.r.render().copy()
         canvas=Image.new('RGB',(960,640),(16,23,34)); canvas.paste(Image.fromarray(view),(0,85))
