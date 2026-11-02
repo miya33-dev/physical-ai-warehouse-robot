@@ -10,7 +10,7 @@
 - JSON構造と値を検証し、曖昧な指示、未対応の作業、否定・条件付き指示は停止。
 - 接続・推論に失敗した場合、別モデルや従来方式へ自動で切り替えません。
 
-画像認識は従来どおり、合成画像で学習する小型Gaussian分類器を使います。経路はA*、アームは逆運動学と位置サーボ、吸着は固定拘束です。台車はXY位置サーボで動かし、車輪の駆動はモデル化していません。
+画像認識は従来どおり、合成画像で学習する小型Gaussian分類器を使います。経路はA*、アームは逆運動学と位置サーボ、吸着は固定拘束です。台車は左右2輪の速度サーボと床との摩擦で走行します。位置・姿勢のフィードバックはシミュレータから取得します。詳細は [車輪駆動](docs/車輪駆動.md) を参照。
 
 ## このMacで動かす
 ターミナルで本フォルダを開き、まずローカル推論サーバーを起動します。すでに起動中なら再起動は不要です。
@@ -26,7 +26,7 @@
 ./run.sh --parse-only --command '赤い荷物を発送エリアまで持っていって'
 
 # LLMを使う2件の配送デモ
-./run.sh --demo --video --output outputs/llm_demo
+./run.sh --demo --video --video-speed 2 --output outputs/wheel_llm_demo
 
 # 単発の配送
 ./run.sh --command '青の荷物を倉庫にしまって' --video --output outputs/llm_single
@@ -46,9 +46,9 @@
 ## 荷物の配置を変える
 ```sh
 # 同じ番号で同じ配置を再現。別の番号にすると配置が変わる
-./run.sh --demo --layout-seed 0 --video --output outputs/layout_seed_0
+./run.sh --demo --layout-seed 0 --video --video-speed 2 --output outputs/layout_seed_0
 # JSONで座標を指定
-./run.sh --demo --layout-file configs/layout_example.json --video --output outputs/custom_layout
+./run.sh --demo --layout-file configs/layout_example.json --video --video-speed 2 --output outputs/custom_layout
 # 認識器を固定した36ケースの検証
 ./run.sh --layout-evaluate
 ```
@@ -62,7 +62,10 @@
 ./run.sh --language naive_bayes --demo --video --output outputs/baseline_demo
 ```
 
-導入前のGitコミットは `494db94`、ブランチは `codex/warehouse-baseline`。LLM導入は `codex/llm-integration`、配置変更は `codex/randomized-layouts` です。
+導入前のGitコミットは `494db94`、ブランチは `codex/warehouse-baseline`。LLM導入は `codex/llm-integration`、配置変更は `codex/randomized-layouts`、車輪駆動は `codex/wheel-drive` です。
+
+## 車輪での走行
+最新動画は `outputs/wheel_llm_demo/demo.mp4`（約1分46秒・2倍速を明記）。車輪の前進・旋回・摩擦の検証は `./run.sh --drive-evaluate` で実行できます。駆動方式と限界は [車輪駆動](docs/車輪駆動.md) を参照。
 
 ## 評価
 ```sh

@@ -14,15 +14,23 @@
     <geom name="storage" type="box" pos="2.60 1.25 .25" size=".30 .43 .25" rgba=".55 .48 .32 1"/>
     <body name="parcel_a" pos="-1.95 -.40 .59"><freejoint/><geom name="box_a" type="box" size=".09 .09 .09" mass=".15" rgba=".9 .08 .05 1"/></body>
     <body name="parcel_b" pos="-1.95 .40 .59"><freejoint/><geom name="box_b" type="box" size=".09 .09 .09" mass=".15" rgba=".06 .20 .9 1"/></body>
-    <body name="base" pos="-2.6 0 .28" gravcomp="1">
-      <joint name="base_x" type="slide" axis="1 0 0"/><joint name="base_y" type="slide" axis="0 1 0"/>
-      <geom name="chassis" type="box" size=".30 .25 .13" mass="8" rgba=".10 .65 .67 1"/>
-      <geom type="cylinder" pos="-.17 -.27 -.10" euler="1.5708 0 0" size=".10 .035" rgba=".06 .07 .08 1" contype="0" conaffinity="0"/>
-      <geom type="cylinder" pos=".17 -.27 -.10" euler="1.5708 0 0" size=".10 .035" rgba=".06 .07 .08 1" contype="0" conaffinity="0"/>
-      <geom type="cylinder" pos="-.17 .27 -.10" euler="1.5708 0 0" size=".10 .035" rgba=".06 .07 .08 1" contype="0" conaffinity="0"/>
-      <geom type="cylinder" pos=".17 .27 -.10" euler="1.5708 0 0" size=".10 .035" rgba=".06 .07 .08 1" contype="0" conaffinity="0"/>
-      <geom type="cylinder" pos="0 0 .35" size=".07 .32" mass="1" rgba=".75 .78 .8 1"/>
-      <body name="shoulder" pos="0 0 .87" gravcomp="1">
+    <body name="base" pos="-2.6 0 .23">
+      <freejoint name="base_free"/>
+      <geom name="chassis" type="box" size=".27 .21 .10" mass="20" rgba=".10 .65 .67 1"/>
+      <body name="left_wheel" pos="0 .285 -.11">
+        <joint name="left_wheel" type="hinge" axis="0 1 0" damping=".02" armature=".01"/>
+        <geom name="left_tire" type="cylinder" euler="1.570796 0 0" size=".12 .035" mass=".6" friction="1 .005 .0001" condim="6" rgba=".06 .07 .08 1"/>
+        <geom type="box" pos=".09 .038 0" size=".025 .008 .012" rgba=".9 .9 .9 1" contype="0" conaffinity="0" mass=".001"/>
+      </body>
+      <body name="right_wheel" pos="0 -.285 -.11">
+        <joint name="right_wheel" type="hinge" axis="0 1 0" damping=".02" armature=".01"/>
+        <geom name="right_tire" type="cylinder" euler="1.570796 0 0" size=".12 .035" mass=".6" friction="1 .005 .0001" condim="6" rgba=".06 .07 .08 1"/>
+        <geom type="box" pos=".09 -.038 0" size=".025 .008 .012" rgba=".9 .9 .9 1" contype="0" conaffinity="0" mass=".001"/>
+      </body>
+      <geom name="front_support" type="sphere" pos=".24 0 -.18" size=".05" mass=".15" friction=".005 .0001 .00001" rgba=".45 .48 .52 1"/>
+      <geom name="rear_support" type="sphere" pos="-.24 0 -.18" size=".05" mass=".15" friction=".005 .0001 .00001" rgba=".45 .48 .52 1"/>
+      <geom type="cylinder" pos="0 0 .46" size=".07 .445" mass="1" rgba=".75 .78 .8 1"/>
+      <body name="shoulder" pos="0 0 .92" gravcomp="1">
         <joint name="shoulder" type="hinge" axis="0 0 1"/>
         <geom name="upper_arm" type="capsule" fromto="0 0 0 .45 0 0" size=".045" mass=".6" rgba=".10 .65 .67 1"/>
         <body name="elbow" pos=".45 0 0" gravcomp="1">
@@ -38,6 +46,12 @@
       </body>
     </body>
   </worldbody>
+  <contact>
+    <pair geom1="floor" geom2="left_tire" condim="6" friction="1 1 .005 .0001 .0001"/>
+    <pair geom1="floor" geom2="right_tire" condim="6" friction="1 1 .005 .0001 .0001"/>
+    <pair geom1="floor" geom2="front_support" condim="3" friction=".005 .005 .0001 .00001 .00001"/>
+    <pair geom1="floor" geom2="rear_support" condim="3" friction=".005 .005 .0001 .00001 .00001"/>
+  </contact>
   <equality><weld name="grasp_a" body1="tool" body2="parcel_a" active="false"/><weld name="grasp_b" body1="tool" body2="parcel_b" active="false"/></equality>
-  <actuator><position joint="base_x" kp="2500" kv="250"/><position joint="base_y" kp="2500" kv="250"/><position joint="shoulder"/><position joint="elbow"/><position joint="lift" kp="1000" kv="70"/></actuator>
+  <actuator><velocity name="left_drive" joint="left_wheel" kv="8" forcerange="-12 12"/><velocity name="right_drive" joint="right_wheel" kv="8" forcerange="-12 12"/><position joint="shoulder"/><position joint="elbow"/><position joint="lift" kp="1000" kv="70"/></actuator>
 </mujoco>

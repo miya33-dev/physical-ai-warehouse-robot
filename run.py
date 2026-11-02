@@ -10,6 +10,7 @@ import argparse
 p=argparse.ArgumentParser()
 p.add_argument('--command',default='赤い箱を出荷場所へ運んで')
 p.add_argument('--video',action='store_true')
+p.add_argument('--video-speed',type=int,choices=[1,2],default=1)
 p.add_argument('--language',choices=['llm','naive_bayes'],default='llm')
 p.add_argument('--parse-only',action='store_true',help='Interpret the command without starting simulation')
 layout_options=p.add_mutually_exclusive_group()
@@ -42,7 +43,7 @@ try:
     elif a.layout_file is not None:
         import json
         s.set_layout(json.loads(a.layout_file.read_text()))
-    if a.video: s.start_video()
+    if a.video: s.start_video(speed=a.video_speed)
     demo_commands=['赤い荷物を発送エリアまで持っていって','青の荷物を倉庫にしまって'] if a.language=='llm' else ['赤い箱を出荷場所へ運んで','青い箱を保管場所へ運んで']
     commands=demo_commands if a.demo else [a.command]
     if a.demo: s.step(3.)

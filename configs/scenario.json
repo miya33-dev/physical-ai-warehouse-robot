@@ -37,5 +37,13 @@
       0.65
     ],
     "min_y_separation_m": 0.28
+  },
+  "drive": {
+    "type": "differential_wheels",
+    "wheel_radius_m": 0.12,
+    "track_width_m": 0.57,
+    "position_feedback": "MuJoCo body pose",
+    "supports": "low-friction spheres",
+    "video_speed_recommended": 2
   }
 }

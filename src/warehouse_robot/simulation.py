@@ -1,5 +1,5 @@
-"""MuJoCo SCARA mobile manipulator, position-served XY base and suction weld.
-Known map/calibration, no wheel dynamics or contact-finger grasping.
+"""MuJoCo SCARA mobile manipulator, wheel-driven differential base and suction weld.
+Known map and simulator pose feedback; simplified suction grasp.
 """
 from pathlib import Path
 import json
@@ -8,6 +8,7 @@ import numpy as np
 import mujoco as mj
 from PIL import Image,ImageDraw,ImageFont
 from .planning import plan
+from .drive import wheel_speeds,wrap,corners,WHEEL_RADIUS
 from .language import IntentModel
 from .vision import PixelModel
 from .layout import validate_layout
@@ -23,10 +24,16 @@ class Simulation:
         self.d=mj.MjData(self.m)
         self.r=mj.Renderer(self.m,height=480,width=640) if render else None
         self.cam=mj.MjvCamera(); self.cam.lookat[:]=[0,0,.3]; self.cam.distance=8.8; self.cam.azimuth=125; self.cam.elevation=-43
-        self.joints=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_JOINT,n) for n in ['base_x','base_y','shoulder','elbow','lift']]
+        self.joints=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_JOINT,n) for n in ['shoulder','elbow','lift']]
         self.qids=[int(self.m.jnt_qposadr[j]) for j in self.joints]
         self.goal=np.array([0,0,-.9,2.2,0.])
-        self.d.qpos[self.qids]=self.goal; self.d.ctrl[:]=self.goal
+        self.d.qpos[self.qids]=self.goal[2:]; self.d.ctrl[:]=self.goal
+        self.base=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_BODY,'base')
+        self.wheel_joints=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_JOINT,n) for n in ['left_wheel','right_wheel']]
+        self.wheel_qids=[int(self.m.jnt_qposadr[j]) for j in self.wheel_joints]
+        self.wheel_distance_m=np.zeros(2); self.wheel_contact_steps=0; self.navigation=[]; self.furniture_contacts=0; self.video_speed=1
+        self.wheel_geoms={mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['left_tire','right_tire']}
+        self.furniture_geoms={mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['source','shipping','storage']}
         self.tip=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_SITE,'tip')
         self.tool=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_BODY,'tool')
         self.obstacle=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,'obstacle')
@@ -41,9 +48,11 @@ class Simulation:
         mj.mj_forward(self.m,self.d)
         self.step(.6)
 
-    def start_video(self):
+    def start_video(self,speed=1):
         if self.writer is not None:
             raise ValueError('video recording is already active')
+        if speed not in [1,2]:raise ValueError('video speed must be 1 or 2')
+        self.video_speed=speed
         import imageio.v2 as iio
         self.writer=iio.get_writer(str(self.out/'demo.mp4'),fps=15,codec='libx264',quality=8,macro_block_size=16)
 
@@ -76,13 +85,19 @@ class Simulation:
     def step(self,seconds):
         for i in range(round(seconds/self.m.opt.timestep)):
             self.d.ctrl[:]=self.goal
+            previous=self.d.qpos[self.wheel_qids].copy()
             mj.mj_step(self.m,self.d)
+            self.wheel_distance_m+=np.abs(self.d.qpos[self.wheel_qids]-previous)*WHEEL_RADIUS
+            if any((int(c.geom1) in self.wheel_geoms or int(c.geom2) in self.wheel_geoms) and (int(c.geom1)==0 or int(c.geom2)==0) for c in self.d.contact):
+                self.wheel_contact_steps+=1
             for c in self.d.contact:
                 a,b=int(c.geom1),int(c.geom2)
+                if (a in self.furniture_geoms and b in self.robot_geoms) or (b in self.furniture_geoms and a in self.robot_geoms):
+                    if c.dist<-.002:self.furniture_contacts+=1
                 if self.obstacle in (a,b) and (a in self.robot_geoms or b in self.robot_geoms or a in self.box_geoms or b in self.box_geoms):
                     if c.dist<-.001:
                         self.collisions+=1; self.contact_pairs.add(tuple(sorted((a,b))))
-            if self.writer and round(self.d.time/self.m.opt.timestep)%17==0:
+            if self.writer and round(self.d.time/self.m.opt.timestep)%(17*self.video_speed)==0:
                 self.frame()
 
     def move(self,goal,seconds=1.5):
@@ -95,24 +110,63 @@ class Simulation:
         self.goal=goal; self.step(.25)
 
     def arm(self,xy,z,seconds=1.5):
-        x,y=np.array(xy)-self.base_xy()
+        rotation=self.d.xmat[self.base].reshape(3,3)
+        x,y=rotation[:2,:2].T@(np.array(xy)-self.base_xy())
         cc=(x*x+y*y-2*.45**2)/(2*.45**2)
         if not -1<=cc<=1: raise ValueError('target outside arm reach')
         e=math.acos(cc)
         a=math.atan2(y,x)-math.atan2(.45*math.sin(e),.45+.45*math.cos(e))
-        q=self.goal.copy(); q[2:]=[a,e,z-1.135]
+        q=self.goal.copy(); q[2:]=[a,e,z-(self.d.xpos[self.base,2]+.905)]
         self.move(q,seconds)
         err=float(np.linalg.norm(self.d.site_xpos[self.tip]-np.array([xy[0],xy[1],z])))
         if err>.04: raise RuntimeError(f'arm tracking error {err:.3f} m')
 
+    def yaw(self):
+        rot=self.d.xmat[self.base].reshape(3,3)
+        return math.atan2(rot[1,0],rot[0,0])
+
+    def drive(self,v,w,dt=.04):
+        self.goal[:2]=wheel_speeds(v,w)
+        self.step(dt)
+
+    def stop(self):
+        self.goal[:2]=0
+        self.step(.4)
+
+    def turn(self,heading):
+        for _ in range(450):
+            error=wrap(heading-self.yaw())
+            if abs(error)<.012:break
+            self.drive(0,float(np.clip(2.5*error,-1.,1.)))
+        else:
+            self.stop();raise RuntimeError('wheel-driven heading timeout')
+        self.stop()
+
     def travel(self,xy):
-        route=plan(self.base_xy(),xy)
+        start=self.base_xy(); route=plan(start,xy)
         self.trail.extend(route)
-        for x,y in route[1:]:
-            q=self.goal.copy(); q[:2]=[x+2.6,y]
-            # Each grid segment moves at <= 0.30 m/s. No teleports.
-            self.move(q,.36)
-        if np.linalg.norm(self.base_xy()-xy)>.08: raise RuntimeError('base failed to reach goal')
+        points=corners(route)
+        if np.linalg.norm(np.array(points[-1])-xy)>.005:points.append(tuple(xy))
+        before=self.wheel_distance_m.copy()
+        for target in points[1:]:
+            target=np.array(target)
+            offset=target-self.base_xy()
+            if np.linalg.norm(offset)<.025:continue
+            self.turn(math.atan2(offset[1],offset[0]))
+            for _ in range(1800):
+                offset=target-self.base_xy(); distance=float(np.linalg.norm(offset))
+                if distance<.022:break
+                error=wrap(math.atan2(offset[1],offset[0])-self.yaw())
+                speed=min(.34,.9*distance) if abs(error)<.35 else 0.
+                self.drive(speed,float(np.clip(2.8*error,-1.,1.)))
+            else:
+                self.stop();raise RuntimeError('wheel-driven waypoint timeout')
+            self.stop()
+        self.turn(0.)
+        error=float(np.linalg.norm(self.base_xy()-xy))
+        self.navigation.append({'start_xy':start.tolist(),'goal_xy':list(xy),'final_xy':self.base_xy().tolist(),
+                                'position_error_m':error,'wheel_distance_m':(self.wheel_distance_m-before).tolist()})
+        if error>.06:raise RuntimeError('wheel-driven docking error')
         return route
 
     def rgb(self):
@@ -173,7 +227,7 @@ class Simulation:
         return k
 
     def execute(self,command):
-        start_time=float(self.d.time); start_col=self.collisions
+        start_time=float(self.d.time); start_col=self.collisions; start_furniture=self.furniture_contacts
         rec={'command':command,'success':False}; self.command=command
         try:
             self.stage='PARSE'; intent=self.lang.predict(command); self.intent=intent; rec['intent']=intent; self.step(.8)
@@ -196,7 +250,8 @@ class Simulation:
             pos=self.d.xpos[self.parcels[k]].copy()
             rec['final_parcel_position']=pos.tolist(); rec['placement_error_m']=float(np.linalg.norm(pos[:2]-drop))
             rec['obstacle_contact_steps']=self.collisions-start_col
-            rec['success']=bool(rec['placement_error_m']<.15 and abs(pos[2]-.59)<.05 and rec['obstacle_contact_steps']==0)
+            rec['robot_table_contact_steps']=self.furniture_contacts-start_furniture
+            rec['success']=bool(rec['placement_error_m']<.15 and abs(pos[2]-.59)<.05 and rec['obstacle_contact_steps']==0 and rec['robot_table_contact_steps']==0)
             if not rec['success']: raise RuntimeError('placement or collision verification failed')
             self.stage='DONE'; self.step(1.2)
         except (ValueError,RuntimeError) as exc:
@@ -207,7 +262,7 @@ class Simulation:
         return rec
 
     def save_results(self):
-        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['XY position-served base, no wheel dynamics','SCARA arm with suction weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
+        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with suction weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'video_speed':self.video_speed,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
 
     def frame(self):
         self.r.disable_segmentation_rendering(); self.r.update_scene(self.d,camera=self.cam)
@@ -235,8 +290,8 @@ class Simulation:
             draw.text((666,520),self.intent['color']+' > '+self.intent['destination'],fill='#6ae0d4',font=font)
         if getattr(self.lang,'name','')=='local_llm':
             draw.text((666,548),'LLM: Qwen3 4B / local',fill='#9bacc0',font=font)
-        draw.text((24,579),'Prototype: XY servo base + SCARA suction arm | fixed map',fill='#9bacc0',font=font)
-        draw.text((24,608),'Video timing: simulation time (15 fps; ~1x)',fill='#9bacc0',font=font)
+        draw.text((24,579),'Wheel-driven base + SCARA suction arm | known map / simulator pose',fill='#9bacc0',font=font)
+        draw.text((24,608),f'Video: simulation time / {self.video_speed}倍速 ({self.video_speed}x playback, 15 fps)',fill='#9bacc0',font=font)
         if self.writer: self.writer.append_data(np.array(canvas))
         if self.frames%150==0: canvas.save(self.out/'preview.png')
         self.frames+=1
