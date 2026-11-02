@@ -54,6 +54,9 @@
         </body>
       </body>
     </body>
+    <geom name="demo_red_sphere" type="sphere" pos="0 0 -10" size=".065" rgba=".9 .08 .05 1"/>
+    <geom name="demo_blue_cylinder" type="cylinder" pos="0 0 -10" size=".065 .065" rgba=".06 .2 .9 1"/>
+    <geom name="demo_red_plate" type="box" pos="0 0 -10" size=".065 .065 .012" rgba=".9 .08 .05 1"/>
   </worldbody>
   <contact>
     <pair geom1="floor" geom2="left_tire" condim="6" friction="1 1 .005 .0001 .0001"/>

@@ -1,0 +1,67 @@
+{
+  "architecture": "YOLO26n",
+  "base_url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt",
+  "base_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+  "weights_sha256": "e392c86f4ff5f226b23c36281bd7c443754cbb08b81b6728c1bcf5cffe100ada",
+  "weights_path": "runs/detect/cubes_yolo26n_v2/weights/best.pt",
+  "initial_checkpoint_path": "runs/detect/cubes_yolo26n/weights/best.pt",
+  "initial_checkpoint_sha256": "e73e9d72dd4f39a03075cd4346ca5fa3df885d07daf37a8fc4207309a9140463",
+  "license": "AGPL-3.0 (Ultralytics distribution; project source AGPL-3.0-only)",
+  "classes": [
+    "red_cube",
+    "blue_cube"
+  ],
+  "ultralytics_version": "8.4.198",
+  "torch_version": "2.15.0",
+  "training_device": "mps",
+  "training_seed": 42,
+  "epochs_requested": 20,
+  "test_metrics": {
+    "metrics/precision(B)": 0.9770238548045284,
+    "metrics/recall(B)": 0.9067148948591646,
+    "metrics/mAP50(B)": 0.9769606548663136,
+    "metrics/mAP50-95(B)": 0.8744825224640372,
+    "fitness": 0.8744825224640372
+  },
+  "dataset": "datasets/cubes_v2",
+  "annotation_source": "original procedural MJCF; seed-disjoint splits",
+  "limitations": "fixed overhead camera; synthetic tabletop scenes; no claim of real-world accuracy",
+  "public_weights_path": "models/cubes_yolo26n.pt",
+  "public_weights_sha256": "8e912df288e6d0ccd343a936f1d330273e03ef4862f73c511f543ab2b93021e0",
+  "checkpoint_metadata_sanitized": true,
+  "project_source_license": "AGPL-3.0-only",
+  "date": "2026-11-03",
+  "inference": {
+    "imgsz": 640,
+    "confidence_threshold": 0.5,
+    "device": "mps",
+    "input": "full RGB image only"
+  },
+  "operating_point_evaluation": {
+    "weights_sha256": "8e912df288e6d0ccd343a936f1d330273e03ef4862f73c511f543ab2b93021e0",
+    "split": "test",
+    "images": 96,
+    "threshold": 0.5,
+    "iou_threshold": 0.5,
+    "true_positive": 151,
+    "false_positive": 12,
+    "false_negative": 9,
+    "precision": 0.9263803680981595,
+    "recall": 0.94375,
+    "empty_images": 15,
+    "empty_images_with_false_detections": 2,
+    "scope": "synthetic fixed-camera tabletop scenes with same-color spheres/cylinders/plates; not real-world performance"
+  },
+  "robot_evaluation": {
+    "passed": 18,
+    "total": 18,
+    "weights_sha256": "8e912df288e6d0ccd343a936f1d330273e03ef4862f73c511f543ab2b93021e0",
+    "scope": "four new layout seeds and same-color clutter; Gaussian classifier is not used; language baseline isolates detector/motion"
+  },
+  "demo_successes": [
+    true,
+    true
+  ],
+  "distribution_status": "local only; no upload performed",
+  "reproduction": "docs/YOLO導入.md"
+}

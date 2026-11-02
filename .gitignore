@@ -21,3 +21,10 @@ submission/*
 
 # Local inference executable
 /.runtime/
+
+# Detector environment, synthetic dataset and checkpoints
+/.vision-packages/
+/datasets/
+/runs/
+*.pt
+*.onnx

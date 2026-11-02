@@ -1,0 +1,4 @@
+# Ultralytics is AGPL-3.0; see LICENSE and THIRD_PARTY_NOTICES.md.
+ultralytics==8.4.198
+torch==2.15.0
+torchvision==0.29.2

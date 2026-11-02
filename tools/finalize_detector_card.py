@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Collect measured results and provenance into a source-controlled model card."""
+from pathlib import Path
+import json,hashlib
+root=Path(__file__).resolve().parents[1]
+card=json.loads((root/'outputs/detector_training/model_card.json').read_text())
+metrics=json.loads((root/'outputs/detector_evaluation/results.json').read_text())
+robot=json.loads((root/'outputs/yolo_robot_evaluation/summary.json').read_text())
+demo=json.loads((root/'outputs/yolo_llm_demo/results.json').read_text())
+sha=hashlib.sha256((root/'models/cubes_yolo26n.pt').read_bytes()).hexdigest()
+assert sha==card['public_weights_sha256']==metrics['weights_sha256']==robot['weights_sha256']==demo['vision_weights_sha256']
+card.update(project_source_license='AGPL-3.0-only',date='2026-11-03',inference={'imgsz':640,'confidence_threshold':.5,'device':'mps','input':'full RGB image only'},
+            operating_point_evaluation={k:v for k,v in metrics.items() if k!='cases'},
+            robot_evaluation={k:v for k,v in robot.items() if k!='cases'},
+            demo_successes=[r['success'] for r in demo['records']],
+            distribution_status='local only; no upload performed',reproduction='docs/YOLO導入.md')
+(root/'configs/detector_model.json').write_text(json.dumps(card,ensure_ascii=False,indent=2)+'\n')
+max_error=max(r['recognition_error_m'] for r in robot['cases'])*100
+text=f'''# YOLO26n キューブ検出モデルカード
+
+更新: 2026-11-03。モデル・動画・ソースはローカルに保存した状態で、公開アップロードはしていません。
+
+## モデル
+- ベース: Ultralytics YOLO26n、学習済みの物体検出モデル。
+- クラス: red_cube / blue_cube。
+- 配布用ローカル重み: models/cubes_yolo26n.pt。
+- SHA256: {sha}
+- 公式ベース重み: {card['base_url']}
+- ベース重みSHA256: {card['base_sha256']}
+- Ultralytics {card['ultralytics_version']} / PyTorch {card['torch_version']}。
+- Apple M5のMPS GPUで追加学習・推論。入力解像度640、検出しきい値0.5。
+
+## ライセンスと出典
+プロジェクト独自ソースはAGPL-3.0-only。Ultralyticsのコード・ベース重み・派生モデルは上流のAGPL-3.0条件を保持します。LICENSE、THIRD_PARTY_NOTICES.md、third_party/Ultralytics-LICENSE.txtを参照してください。元のアーキテクチャや事前学習を本プロジェクトの成果とは表示しません。
+
+依存ソフトは別途インストールし、それぞれの元のライセンスを保持します。モデル重みを配布する場合は、対応するソース・設定・生成/学習/評価手順・ライセンス・本カードを併せて案内してください。ソースリポジトリに講義資料や認証情報は含めません。
+
+## 学習データと手順
+独自のMuJoCoプリミティブシーンからRGB画像・可視領域の正解枠を生成しました。赤/青のキューブのほか、同色の球・円柱・薄い板、対象なし・複数対象を含みます。照明・色・位置・サイズを変えています。セグメンテーションIDは教師データ生成・評価用であり、推論ではRGBしか入力しません。
+
+v1/v2それぞれ学習512枚・検証96枚・テスト96枚。乱数範囲を版とsplitごとに分離。v1で30エポック、そこから連続配置と実行時の見え方を増やしたv2で20エポック追加学習しました。v1は画像評価で良好でも一部の実行場面で見落としがあり、データ分布を改善しています。
+
+重みは検証用データの評価から選択。最終テストとロボット配置200〜203は学習・検証に使っていません。以前に確認した配置100〜103は開発用として扱います。最終の同色別形状の統合確認にはseed 0を使い、その試験条件を公開しています。
+
+再現手順は YOLO導入.md。MPSには非決定的な演算が含まれるため、別環境での重みのビット単位の一致は保証しません。学習用チェックポイントの個人のローカルパスを除いた推論用ファイルを作成し、メタデータを検査しました。
+
+## 最終テスト96画像（運用しきい値）
+| 項目 | 結果 |
+|---|---:|
+| スコアしきい値 | 0.5 |
+| 正解とのIoU条件 | 0.5以上 |
+| 正しく対応した検出 | {metrics['true_positive']} |
+| 誤検出 | {metrics['false_positive']} |
+| 見落とし | {metrics['false_negative']} |
+| 適合率 | {metrics['precision']*100:.2f}% |
+| 再現率 | {metrics['recall']*100:.2f}% |
+| 対象なし画像のうち誤検出があった画像 | {metrics['empty_images_with_false_detections']} / {metrics['empty_images']} |
+
+別途Ultralytics標準集計のmAP50は {card['test_metrics']['metrics/mAP50(B)']:.4f}、mAP50-95は {card['test_metrics']['metrics/mAP50-95(B)']:.4f}。集計・判定条件が運用しきい値の表とは異なるため、P/Rを混同しません。テスト画像には誤検出・見落としがあり、完全な形状理解や未知環境での精度は主張しません。
+
+## ロボット統合
+YOLOを固定し、新しい4配置×2色×2配送先の16件と、同色の別形状を含む2件の計18件を検証。{robot['passed']}/{robot['total']}件が認識・指把持・車輪配送・配置確認まで成功しました。位置推定誤差は最大約{max_error:.2f}cm。これらの言語入力は従来分類器に固定して認識と制御を評価しています。
+
+別途LLMから赤・青の2件を連続配送したデモも成功。outputs/yolo_llm_demo/demo.mp4は139.0秒、2倍速を明記。表示は認識結果の拡大で、推論入力は全画像です。
+
+## 制約
+固定した真上カメラ、既知の台・箱高さ、軸にそろった箱を扱います。枠の中心を既知平面へ投影して把持位置としています。同色の候補が複数なら停止します。一般的な6D姿勢推定、実世界画像、任意の遮蔽、未知の形状・材質には未対応です。把持と自己位置の確認にはシミュレータ情報を利用します。
+
+実測JSON: configs/detector_model.json。元の評価ログと画像は outputs/detector_evaluation/ と outputs/yolo_robot_evaluation/ に保存。ローカル依存・重み・データ・動画はGit管理外です。
+'''
+(root/'docs/YOLOモデルカード.md').write_text(text)
+print('Model card and provenance verified and saved.')

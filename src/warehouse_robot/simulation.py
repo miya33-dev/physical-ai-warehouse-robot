@@ -6,7 +6,7 @@ import json
 import math
 import numpy as np
 import mujoco as mj
-from PIL import Image,ImageDraw,ImageFont
+from PIL import Image,ImageDraw,ImageFont,ImageOps
 from .planning import plan
 from .drive import wheel_speeds,wrap,corners,WHEEL_RADIUS
 from .language import IntentModel
@@ -44,7 +44,7 @@ class Simulation:
         self.box_geoms=[mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,n) for n in ['box_a','box_b']]
         self.contact_pairs=set(); self.collisions=0; self.held=None; self.stage='INITIALIZE'; self.command=''; self.intent=None
         self.frames=0; self.records=[]; self.trail=[]; self.vision_frame=None; self.detection=None
-        self.layout_metadata={'mode':'fixed'}
+        self.layout_metadata={'mode':'fixed'};self.distractor_metadata=[]
         self.lang=language_model if language_model is not None else IntentModel(); self.writer=None
         if video: self.start_video()
         mj.mj_forward(self.m,self.d)
@@ -77,6 +77,20 @@ class Simulation:
         self.vision_frame=self.rgb(); self.detection=None
         Image.fromarray(self.vision_frame).save(self.out/'layout_camera.png')
         self.save_results()
+
+    def enable_distractors(self):
+        """Initial scene setup only; keep the gripper approach clear."""
+        if self.records or self.held is not None:raise ValueError('set distractors before delivery')
+        occupied=[float(self.d.xpos[b,1]) for b in self.parcels]
+        for i,name in enumerate(['demo_red_sphere','demo_blue_cylinder','demo_red_plate']):
+            candidates=[y for y in np.linspace(-.67,.67,15) if min(abs(y-v) for v in occupied)>.26]
+            if not candidates:break
+            y=max(candidates,key=lambda x:min(abs(x-v) for v in occupied));occupied.append(y)
+            g=mj.mj_name2id(self.m,mj.mjtObj.mjOBJ_GEOM,name)
+            h=.012 if 'plate' in name else .065
+            self.m.geom_pos[g]=[-2.03 if i%2==0 else -1.87,y,.5+h]
+            self.distractor_metadata.append({'name':name,'position':self.m.geom_pos[g].tolist()})
+        mj.mj_forward(self.m,self.d);self.vision_frame=self.rgb()
 
     def close(self):
         if self.writer: self.writer.close(); self.writer=None
@@ -291,7 +305,7 @@ class Simulation:
         return rec
 
     def save_results(self):
-        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with two contact-friction fingers, no weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'gripper':{'type':'parallel_fingers','equality_constraints':int(self.m.neq),'events':self.grasp_events},'video_speed':self.video_speed,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
+        (self.out/'results.json').write_text(json.dumps({'simulator':'MuJoCo '+mj.__version__,'simplifications':['differential wheel drive with floor contact; simulator pose feedback','SCARA arm with two contact-friction fingers, no weld','known map and fixed calibrated overhead camera','language backend: '+getattr(self.lang,'name','naive_bayes')],'vision_backend':getattr(getattr(self,'vision',None),'name','gaussian'),'vision_weights_sha256':getattr(getattr(self,'vision',None),'sha256',None),'language_backend':getattr(self.lang,'name','naive_bayes'),'language_model':getattr(self.lang,'model',None),'layout':self.layout_metadata,'distractors':self.distractor_metadata,'drive':{'type':'differential_wheels','wheel_distance_m':self.wheel_distance_m.tolist(),'wheel_contact_steps':self.wheel_contact_steps,'navigation':self.navigation,'robot_table_contact_steps':self.furniture_contacts},'gripper':{'type':'parallel_fingers','equality_constraints':int(self.m.neq),'events':self.grasp_events},'video_speed':self.video_speed,'records':self.records,'obstacle_contact_steps':self.collisions,'simulated_time_s':float(self.d.time)},ensure_ascii=False,indent=2))
 
     def frame(self):
         self.r.disable_segmentation_rendering(); self.r.update_scene(self.d,camera=self.cam)
@@ -310,19 +324,32 @@ class Simulation:
         draw.text((666,193),f'Simulation: {self.d.time:5.1f}s',fill='white',font=font)
         draw.text((666,220),f'Obstacle contacts: {self.collisions}',fill='white',font=font)
         closeup=self.stage in ['PICK','PLACE']
-        draw.text((666,247),'GRIPPER / physical contact' if closeup else 'RGB CAMERA / learned model',fill='#8599b2',font=font)
+        draw.text((666,247),'GRIPPER / physical contact' if closeup else ('YOLO26n / source-bay zoom' if getattr(getattr(self,'vision',None),'name','')=='yolo26n' else 'RGB CAMERA / learned model'),fill='#8599b2',font=font)
         if closeup:
             canvas.paste(Image.fromarray(self.gripper_rgb()).resize((280,210)),(666,290))
         elif self.vision_frame is not None:
             cam=Image.fromarray(self.vision_frame.copy())
             if self.detection:
-                dr=ImageDraw.Draw(cam); x,y=self.detection['pixel_center']; dr.ellipse((x-15,y-15,x+15,y+15),outline='#00ff99',width=3)
-            canvas.paste(cam.resize((280,210)),(666,290))
+                dr=ImageDraw.Draw(cam);x,y=self.detection['pixel_center']
+                for box in self.detection.get('detections',[]):
+                    color='#ff7777' if box['class']=='red_cube' else '#66aaff'
+                    dr.rectangle(box['bbox_xyxy'],outline=color,width=2)
+                    x1,y1=box['bbox_xyxy'][:2]
+                    dr.text((x1,max(0,y1-13)),box['class']+f" {box['score']:.2f}",fill=color)
+                dr.ellipse((x-3,y-3,x+3,y+3),outline='#00ff99',width=2)
+            if getattr(getattr(self,'vision',None),'name','')=='yolo26n':
+                zoom=ImageOps.contain(cam.crop((95,145,260,335)),(280,210))
+                canvas.paste(zoom,(666+(280-zoom.width)//2,290))
+            else:
+                canvas.paste(cam.resize((280,210)),(666,290))
+        if self.detection and 'score' in self.detection:
+            x,y=self.detection['xy']
+            draw.text((666,274),f"score {self.detection['score']:.2f} | x {x:.2f} y {y:.2f}m",fill='#c7d5e5',font=font.font_variant(size=12) if hasattr(font,'font_variant') else font)
         if self.intent:
             draw.text((666,520),self.intent['color']+' > '+self.intent['destination'],fill='#6ae0d4',font=font)
         if getattr(self.lang,'name','')=='local_llm':
             draw.text((666,548),'LLM: Qwen3 4B / local',fill='#9bacc0',font=font)
-        draw.text((24,579),'Wheel-driven base + two-finger SCARA arm | known map / simulator pose',fill='#9bacc0',font=font)
+        draw.text((24,579),'YOLO26n on full RGB / display zoomed | wheel drive + contact fingers' if getattr(getattr(self,'vision',None),'name','')=='yolo26n' else 'Wheel-driven base + two-finger SCARA arm | known map / simulator pose',fill='#9bacc0',font=font)
         draw.text((24,608),f'Video: simulation time / {self.video_speed}倍速 ({self.video_speed}x playback, 15 fps)',fill='#9bacc0',font=font)
         if self.writer: self.writer.append_data(np.array(canvas))
         if self.frames%150==0: canvas.save(self.out/'preview.png')
