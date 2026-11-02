@@ -28,3 +28,6 @@ submission/*
 /runs/
 *.pt
 *.onnx
+
+# Final project-authored report only; course PDFs stay excluded
+!submission/説明資料_PAI最終課題_99691.pdf
